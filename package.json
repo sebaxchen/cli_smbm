@@ -1,0 +1,39 @@
+{
+  "name": "smbm",
+  "version": "1.1.8",
+  "description": "CLI: --l crea LICENSE.md, --d crea docs/, --ddd genera estructura DDD",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "smbm": "src/cli.js"
+  },
+  "scripts": {
+    "prepublishOnly": "node src/scripts/ensurance-license.js",
+    "test": "node -e \"console.log('ok')\""
+  },
+  "keywords": [
+    "smbm",
+    "license",
+    "docs",
+    "puml",
+    "user-stories",
+    "cli",
+    "ddd"
+  ],
+  "author": "Sebastian Beingolea",
+  "license": "ISC",
+  "files": [
+    "src/**/*",
+    "README.md",
+    "LICENSE.md",
+    "package.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sebaxchen/smbm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sebaxchen/smbm/issues"
+  },
+  "homepage": "https://github.com/sebaxchen/smbm#readme"
+}
