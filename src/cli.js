@@ -4,6 +4,8 @@ const { ensureLicense } = require("./scripts/ensurance-license.js");
 const { ensureDocs }    = require("./scripts/ensure-docs.js");
 const { ensureDDD }     = require("./scripts/ensure-ddd.js");
 const { ensureEnv }     = require("./scripts/ensure-env.js"); // ⬅️ NUEVO
+const { ensureLocales } = require("./scripts/ensure-locales.js");
+
 
 const args = process.argv.slice(2);
 const has = f => args.includes(f);
@@ -116,6 +118,26 @@ if (has("--env")) {
             console.log("ℹ .gitignore ya contenía las reglas necesarias");
         }
     }
+    process.exit(0);
+}
+
+/* --lo: crea locales/en.json y locales/es.json */
+if (has("--lo")) {
+    let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+    const dir   = get("dir", "locales");   // permite cambiar carpeta: --dir i18n
+    const force = has("--force");
+
+    const res = ensureLocales({
+        dir,
+        force,
+        projectName: pkg.name || undefined
+    });
+
+    console.log(`✔ Locales en: ${res.dir}`);
+    res.files.forEach(f => {
+        const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+        console.log(`  - ${f.path} ${tag}`);
+    });
     process.exit(0);
 }
 
