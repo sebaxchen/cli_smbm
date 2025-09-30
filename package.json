@@ -35,5 +35,8 @@
   "bugs": {
     "url": "https://github.com/sebaxchen/smbm/issues"
   },
-  "homepage": "https://github.com/sebaxchen/smbm#readme"
+  "homepage": "https://github.com/sebaxchen/smbm#readme",
+  "dependencies": {
+    "openai": "^5.23.2"
+  }
 }

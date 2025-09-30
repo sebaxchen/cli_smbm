@@ -6,6 +6,10 @@ const { ensureDDD }     = require("./scripts/ensure-ddd.js");
 const { ensureEnv }     = require("./scripts/ensure-env.js"); // ⬅️ NUEVO
 const { ensureLocales } = require("./scripts/ensure-locales.js");
 
+try { require("dotenv").config(); } catch {}
+const { askOnce, askStream } = require("./scripts/ask-openai.js");
+const { setApiKey } = require("./scripts/openai-config.js");
+
 
 const args = process.argv.slice(2);
 const has = f => args.includes(f);
@@ -140,6 +144,52 @@ if (has("--lo")) {
     });
     process.exit(0);
 }
+/* --ask: pregunta a ChatGPT (OpenAI) */
+/* --ask: ChatGPT (OpenAI) */
+if (has("--ask")) {
+    // patrón especial: --ask set "<KEY>"
+    const idxAsk = args.indexOf("--ask");
+    const sub = args[idxAsk + 1];
+
+    if (sub && sub.toLowerCase() === "set") {
+        const key = args[idxAsk + 2];
+        if (!key) {
+            console.error('Falta la clave. Uso: npx smbm --ask set "TU_API_KEY"');
+            process.exit(1);
+        }
+        const where = setApiKey(key);
+        console.log(`✔ OPENAI_API_KEY guardada en: ${where}`);
+        process.exit(0);
+    }
+
+    // uso normal: npx smbm --ask "pregunta..." [--model ...] [--stream]
+    const q = sub && !sub.startsWith("--") ? sub : get("ask", null);
+    if (!q) {
+        console.error('Falta la pregunta. Ej: npx smbm --ask "¿Qué es DDD?"');
+        process.exit(1);
+    }
+
+    const model = get("model", "gpt-4o-mini");
+    const streaming = has("--stream");
+
+    (async () => {
+        try {
+            if (streaming) {
+                await askStream({ prompt: q, model });
+                process.stdout.write("\n");
+            } else {
+                const out = await askOnce({ prompt: q, model });
+                console.log(out);
+            }
+        } catch (e) {
+            console.error("Error consultando OpenAI:", e.message);
+            process.exit(1);
+        }
+    })();
+
+    return;
+}
+
 
 
 console.error("Nada que hacer. Usa --l, --d, --ddd, --env o --help.");
