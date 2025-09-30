@@ -265,7 +265,7 @@ if (has("--deps")) {
 
 /* --server: prepara carpeta server con db.json, routes.json, start.sh
    y verifica/instala json-server si falta */
-if (has("--ser")) {
+if (has("--s")) {
     (async () => {
         const pm     = get("pm", null);   // --pm npm|yarn|pnpm|bun
         const dir    = get("dir", "server");
@@ -319,5 +319,5 @@ if (has("--ser")) {
 
 
 
-console.error("Nada que hacer. Usa --l, --d, --deps, --ser,  --ddd, --env, --lo o --ask (o --help).");
+console.error("Nada que hacer. Usa --l, --d, --deps, --s,  --ddd, --env, --lo o --ask (o --help).");
 process.exit(1);
