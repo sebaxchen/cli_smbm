@@ -76,18 +76,33 @@ if (has("--ddd")) {
 }
 
 /* --env: .env.developer / .env.production */
+/* --env: .env.developer / .env.production */
 if (has("--env")) {
     let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
-    const scope = nextAfter("--env");              // dev | prod | all | (omitir => ambos)
-    const dir   = get("dir", ".");                 // carpeta destino (por defecto raíz)
+
+    // acepta: dev | developer | development | pro | prod | production | all | both
+    const scopeRaw = nextAfter("--env") || get("env", "all");
+    const s = String(scopeRaw || "all").toLowerCase();
+
+    const makeDev  = ["dev", "developer", "development", "all", "both"].includes(s);
+    const makeProd = ["pro", "prod", "production", "all", "both"].includes(s);
+
+    // si pasan algo raro, por defecto crea ambos
+    const makeDevFinal  = (makeDev || (!makeDev && !makeProd));
+    const makeProdFinal = (makeProd || (!makeDev && !makeProd));
+
+    const dir   = get("dir", ".");          // carpeta destino (por defecto raíz)
     const force = has("--force");
-    const ignore = !has("--no-ignore");            // por defecto sí añade reglas a .gitignore
+    const ignore = !has("--no-ignore");     // por defecto SÍ añade a .gitignore
 
-    const s = (scope || "").toLowerCase();
-    const makeDev  = !s || s === "dev" || s === "developer" || s === "all";
-    const makeProd = !s || s === "prod"|| s === "production"|| s === "all";
-
-    const res = ensureEnv({ dir, makeDev, makeProd, force, addGitignore: ignore, pkg });
+    const res = ensureEnv({
+        dir,
+        makeDev: makeDevFinal,
+        makeProd: makeProdFinal,
+        force,
+        addGitignore: ignore,
+        pkg
+    });
 
     console.log(`✔ .env en: ${res.dir}`);
     res.files.forEach(f => {
@@ -103,6 +118,7 @@ if (has("--env")) {
     }
     process.exit(0);
 }
+
 
 console.error("Nada que hacer. Usa --l, --d, --ddd, --env o --help.");
 process.exit(1);
