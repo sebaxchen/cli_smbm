@@ -225,7 +225,7 @@ if (has("--ask")) {
 }
 
 /* --dep: instala Vue + Prime + utilidades con barra de progreso */
-if (has("--dep")) {
+if (has("--deps")) {
     (async () => {
         const pm    = get("pm", null);     // --pm npm|yarn|pnpm|bun
         const dev   = has("--dev");        // --dev => devDependencies
