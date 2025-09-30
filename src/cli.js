@@ -3,8 +3,9 @@ const fs = require("node:fs");
 const { ensureLicense } = require("./scripts/ensurance-license.js");
 const { ensureDocs }    = require("./scripts/ensure-docs.js");
 const { ensureDDD }     = require("./scripts/ensure-ddd.js");
-const { ensureEnv }     = require("./scripts/ensure-env.js"); // ⬅️ NUEVO
+const { ensureEnv }     = require("./scripts/ensure-env.js"); //
 const { ensureLocales } = require("./scripts/ensure-locales.js");
+
 
 try { require("dotenv").config(); } catch {}
 const { askOnce, askStream } = require("./scripts/ask-openai.js");
@@ -128,14 +129,9 @@ if (has("--env")) {
 /* --lo: crea locales/en.json y locales/es.json */
 if (has("--lo")) {
     let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
-    const dir   = get("dir", "locales");   // permite cambiar carpeta: --dir i18n
+    const dir   = get("dir", "locales");
     const force = has("--force");
-
-    const res = ensureLocales({
-        dir,
-        force,
-        projectName: pkg.name || undefined
-    });
+    const res = ensureLocales({ dir, force, projectName: pkg.name || undefined });
 
     console.log(`✔ Locales en: ${res.dir}`);
     res.files.forEach(f => {
@@ -144,6 +140,7 @@ if (has("--lo")) {
     });
     process.exit(0);
 }
+
 /* --ask: pregunta a ChatGPT (OpenAI) */
 /* --ask: ChatGPT (OpenAI) */
 if (has("--ask")) {
