@@ -4,6 +4,7 @@ out/
 !**/src/test/**/out/
 .kotlin
 
+
 ### Eclipse ###
 .apt_generated
 .classpath
@@ -27,4 +28,10 @@ bin/
 .vscode/
 
 ### Mac OS ###
-.DS_Store
+.DS_Storenode_modules/
+*.tgz
+.idea/
+*.iml
+.env
+.env.*
+!.env.example
