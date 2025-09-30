@@ -3,19 +3,18 @@ const fs = require("node:fs");
 const { ensureLicense } = require("./scripts/ensurance-license.js");
 const { ensureDocs }    = require("./scripts/ensure-docs.js");
 const { ensureDDD }     = require("./scripts/ensure-ddd.js");
-const { ensureEnv }     = require("./scripts/ensure-env.js"); //
+const { ensureEnv }     = require("./scripts/ensure-env.js");
 const { ensureLocales } = require("./scripts/ensure-locales.js");
 
+const { makeSpinner } = require("./ui/spinner.js");
 
 try { require("dotenv").config(); } catch {}
 const { askOnce, askStream } = require("./scripts/ask-openai.js");
 const { setApiKey } = require("./scripts/openai-config.js");
 
-
 const args = process.argv.slice(2);
 const has = f => args.includes(f);
 const get = (k, d) => { const i = args.findIndex(a => a === `--${k}`); return i !== -1 ? args[i + 1] : d; };
-// valor posicional justo después de una flag
 const nextAfter = flag => {
     const i = args.indexOf(flag);
     if (i !== -1) {
@@ -31,7 +30,10 @@ Uso:
   npx smbm --l   [--type ISC|MIT] [--author "Nombre"] [--year 2025] [--out LICENSE.md] [--force]
   npx smbm --d   [--dir docs] [--stories user-stories.md] [--diagram diagrama.puml] [--force]
   npx smbm --ddd [<FeatureName>] [--name <FeatureName>] [--base src]
-  npx smbm --env [dev|prod|all] [--dir .] [--force] [--no-ignore]
+  npx smbm --env [dev|pro|all] [--dir .] [--force] [--no-ignore]
+  npx smbm --lo  [--dir locales] [--force]
+  npx smbm --ask set "TU_API_KEY"
+  npx smbm --ask "pregunta..." [--model gpt-4o-mini] [--stream] [--no-anim]
 
 Ejemplos:
   npx smbm --ddd auth
@@ -39,7 +41,10 @@ Ejemplos:
   npx smbm --ddd orders --base src/modules
   npx smbm --env
   npx smbm --env dev
-  npx smbm --env prod --dir config
+  npx smbm --env pro --dir config
+  npx smbm --lo
+  npx smbm --ask set "sk-xxxx"
+  npx smbm --ask "¿Qué es DDD?" --stream
 `);
     process.exit(0);
 }
@@ -83,32 +88,25 @@ if (has("--ddd")) {
 }
 
 /* --env: .env.developer / .env.production */
-/* --env: .env.developer / .env.production */
 if (has("--env")) {
     let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
 
-    // acepta: dev | developer | development | pro | prod | production | all | both
     const scopeRaw = nextAfter("--env") || get("env", "all");
     const s = String(scopeRaw || "all").toLowerCase();
 
     const makeDev  = ["dev", "developer", "development", "all", "both"].includes(s);
     const makeProd = ["pro", "prod", "production", "all", "both"].includes(s);
 
-    // si pasan algo raro, por defecto crea ambos
     const makeDevFinal  = (makeDev || (!makeDev && !makeProd));
     const makeProdFinal = (makeProd || (!makeDev && !makeProd));
 
-    const dir   = get("dir", ".");          // carpeta destino (por defecto raíz)
+    const dir   = get("dir", ".");
     const force = has("--force");
-    const ignore = !has("--no-ignore");     // por defecto SÍ añade a .gitignore
+    const ignore = !has("--no-ignore");
 
     const res = ensureEnv({
-        dir,
-        makeDev: makeDevFinal,
-        makeProd: makeProdFinal,
-        force,
-        addGitignore: ignore,
-        pkg
+        dir, makeDev: makeDevFinal, makeProd: makeProdFinal,
+        force, addGitignore: ignore, pkg
     });
 
     console.log(`✔ .env en: ${res.dir}`);
@@ -126,7 +124,7 @@ if (has("--env")) {
     process.exit(0);
 }
 
-/* --lo: crea locales/en.json y locales/es.json */
+/* --lo: locales/en.json y locales/es.json */
 if (has("--lo")) {
     let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
     const dir   = get("dir", "locales");
@@ -141,13 +139,12 @@ if (has("--lo")) {
     process.exit(0);
 }
 
-/* --ask: pregunta a ChatGPT (OpenAI) */
-/* --ask: ChatGPT (OpenAI) */
+/* --ask: SET y PREGUNTA (con spinner bonito) */
 if (has("--ask")) {
-    // patrón especial: --ask set "<KEY>"
     const idxAsk = args.indexOf("--ask");
     const sub = args[idxAsk + 1];
 
+    // SET: npx smbm --ask set "KEY"
     if (sub && sub.toLowerCase() === "set") {
         const key = args[idxAsk + 2];
         if (!key) {
@@ -159,7 +156,7 @@ if (has("--ask")) {
         process.exit(0);
     }
 
-    // uso normal: npx smbm --ask "pregunta..." [--model ...] [--stream]
+    // PREGUNTA: npx smbm --ask "pregunta..." [--model ...] [--stream] [--no-anim]
     const q = sub && !sub.startsWith("--") ? sub : get("ask", null);
     if (!q) {
         console.error('Falta la pregunta. Ej: npx smbm --ask "¿Qué es DDD?"');
@@ -168,17 +165,26 @@ if (has("--ask")) {
 
     const model = get("model", "gpt-4o-mini");
     const streaming = has("--stream");
+    const animationsEnabled = !has("--no-anim") && process.env.CI !== "true" && process.stdout.isTTY;
+
+    const spinner = animationsEnabled ? makeSpinner("Consultando OpenAI…").start() : null;
 
     (async () => {
         try {
             if (streaming) {
-                await askStream({ prompt: q, model });
+                await askStream({
+                    prompt: q,
+                    model,
+                    onFirstToken: () => { if (spinner) spinner.stop(); }
+                });
                 process.stdout.write("\n");
             } else {
                 const out = await askOnce({ prompt: q, model });
+                if (spinner) spinner.succeed("Respuesta recibida");
                 console.log(out);
             }
         } catch (e) {
+            if (spinner) spinner.fail("Fallo la consulta");
             console.error("Error consultando OpenAI:", e.message);
             process.exit(1);
         }
@@ -187,7 +193,5 @@ if (has("--ask")) {
     return;
 }
 
-
-
-console.error("Nada que hacer. Usa --l, --d, --ddd, --env o --help.");
+console.error("Nada que hacer. Usa --l, --d, --ddd, --env, --lo o --ask (o --help).");
 process.exit(1);
