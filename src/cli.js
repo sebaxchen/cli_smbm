@@ -7,6 +7,7 @@ const { ensureEnv }     = require("./scripts/ensure-env.js");
 const { ensureLocales } = require("./scripts/ensure-locales.js");
 
 const { makeSpinner } = require("./ui/spinner.js");
+const { runWithSpinner } = require("./ui/run.js");
 
 try { require("dotenv").config(); } catch {}
 const { askOnce, askStream } = require("./scripts/ask-openai.js");
@@ -51,145 +52,174 @@ Ejemplos:
 
 /* --l: LICENSE.md */
 if (has("--l")) {
-    let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
-    const authorFromPkg = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name);
-    ensureLicense({
-        type: (get("type", pkg.license || "ISC")).toUpperCase(),
-        author: get("author", authorFromPkg || "Autor"),
-        year: Number(get("year", new Date().getFullYear())),
-        out: get("out", "LICENSE.md"),
-        force: has("--force")
-    });
-    process.exit(0);
+    (async () => {
+        let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+        const authorFromPkg = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name);
+
+        await runWithSpinner("Creando LICENSE.md", () => {
+            ensureLicense({
+                type: (get("type", pkg.license || "ISC")).toUpperCase(),
+                author: get("author", authorFromPkg || "Autor"),
+                year: Number(get("year", new Date().getFullYear())),
+                out: get("out", "LICENSE.md"),
+                force: has("--force")
+            });
+        }, { cliArgs: args, minMs: 300 });
+
+        process.exit(0);
+    })();
+    return;
 }
 
 /* --d: docs/ */
 if (has("--d")) {
-    let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
-    const res = ensureDocs({
-        dir: get("dir", "docs"),
-        storiesName: get("stories", "user-stories.md"),
-        diagramName: get("diagram", "diagrama.puml"),
-        force: has("--force"),
-        pkg
-    });
-    console.log(`✔ Docs en: ${res.dir}`);
-    res.files.forEach(f => console.log(`  - ${f.path} ${f.created ? "(creado/actualizado)" : "(existente)"}`));
-    process.exit(0);
+    (async () => {
+        const res = await runWithSpinner("Generando docs", () => {
+            let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+            return ensureDocs({
+                dir: get("dir", "docs"),
+                storiesName: get("stories", "user-stories.md"),
+                diagramName: get("diagram", "diagrama.puml"),
+                force: has("--force"),
+                pkg
+            });
+        }, { cliArgs: args });
+
+        console.log(`✔ Docs en: ${res.dir}`);
+        res.files.forEach(f => console.log(`  - ${f.path} ${f.created ? "(creado/actualizado)" : "(existente)"}`));
+        process.exit(0);
+    })();
+    return;
 }
 
 /* --ddd: estructura DDD */
 if (has("--ddd")) {
-    const name = get("name", nextAfter("--ddd")) || "myFeature";
-    const base = get("base", "src");
-    const { root } = ensureDDD({ feature: name, base });
-    console.log(`✔ Estructura DDD creada en: ${root}`);
-    process.exit(0);
+    (async () => {
+        const out = await runWithSpinner("Creando estructura DDD", () => {
+            const name = get("name", nextAfter("--ddd")) || "myFeature";
+            const base = get("base", "src");
+            return ensureDDD({ feature: name, base });
+        }, { cliArgs: args });
+
+        console.log(`✔ Estructura DDD creada en: ${out.root}`);
+        process.exit(0);
+    })();
+    return;
 }
 
 /* --env: .env.developer / .env.production */
 if (has("--env")) {
-    let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+    (async () => {
+        const res = await runWithSpinner("Preparando entornos (.env)", () => {
+            let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
 
-    const scopeRaw = nextAfter("--env") || get("env", "all");
-    const s = String(scopeRaw || "all").toLowerCase();
+            const scopeRaw = nextAfter("--env") || get("env", "all");
+            const s = String(scopeRaw || "all").toLowerCase();
 
-    const makeDev  = ["dev", "developer", "development", "all", "both"].includes(s);
-    const makeProd = ["pro", "prod", "production", "all", "both"].includes(s);
+            const makeDev  = ["dev", "developer", "development", "all", "both"].includes(s);
+            const makeProd = ["pro", "prod", "production", "all", "both"].includes(s);
 
-    const makeDevFinal  = (makeDev || (!makeDev && !makeProd));
-    const makeProdFinal = (makeProd || (!makeDev && !makeProd));
+            const makeDevFinal  = (makeDev || (!makeDev && !makeProd));
+            const makeProdFinal = (makeProd || (!makeDev && !makeProd));
 
-    const dir   = get("dir", ".");
-    const force = has("--force");
-    const ignore = !has("--no-ignore");
+            const dir   = get("dir", ".");
+            const force = has("--force");
+            const ignore = !has("--no-ignore");
 
-    const res = ensureEnv({
-        dir, makeDev: makeDevFinal, makeProd: makeProdFinal,
-        force, addGitignore: ignore, pkg
-    });
+            return ensureEnv({
+                dir,
+                makeDev: makeDevFinal,
+                makeProd: makeProdFinal,
+                force,
+                addGitignore: ignore,
+                pkg
+            });
+        }, { cliArgs: args });
 
-    console.log(`✔ .env en: ${res.dir}`);
-    res.files.forEach(f => {
-        const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
-        console.log(`  - ${f.path} ${tag}`);
-    });
-    if (ignore) {
-        if (res.gitignore.updated) {
-            console.log(`✔ .gitignore actualizado (añadido): ${res.gitignore.added.join(", ")}`);
-        } else {
-            console.log("ℹ .gitignore ya contenía las reglas necesarias");
+        console.log(`✔ .env en: ${res.dir}`);
+        res.files.forEach(f => {
+            const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+            console.log(`  - ${f.path} ${tag}`);
+        });
+        if (res.gitignore) {
+            if (res.gitignore.updated) {
+                console.log(`✔ .gitignore actualizado (añadido): ${res.gitignore.added.join(", ")}`);
+            } else {
+                console.log("ℹ .gitignore ya contenía las reglas necesarias");
+            }
         }
-    }
-    process.exit(0);
+        process.exit(0);
+    })();
+    return;
 }
 
 /* --lo: locales/en.json y locales/es.json */
 if (has("--lo")) {
-    let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
-    const dir   = get("dir", "locales");
-    const force = has("--force");
-    const res = ensureLocales({ dir, force, projectName: pkg.name || undefined });
+    (async () => {
+        const res = await runWithSpinner("Generando locales", () => {
+            let pkg = {}; try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+            const dir   = get("dir", "locales");
+            const force = has("--force");
+            return ensureLocales({ dir, force, projectName: pkg.name || undefined });
+        }, { cliArgs: args });
 
-    console.log(`✔ Locales en: ${res.dir}`);
-    res.files.forEach(f => {
-        const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
-        console.log(`  - ${f.path} ${tag}`);
-    });
-    process.exit(0);
+        console.log(`✔ Locales en: ${res.dir}`);
+        res.files.forEach(f => {
+            const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+            console.log(`  - ${f.path} ${tag}`);
+        });
+        process.exit(0);
+    })();
+    return;
 }
 
-/* --ask: SET y PREGUNTA (con spinner bonito) */
+/* --ask: SET y PREGUNTA (con spinner bonito para todo el flujo) */
 if (has("--ask")) {
     const idxAsk = args.indexOf("--ask");
     const sub = args[idxAsk + 1];
 
     // SET: npx smbm --ask set "KEY"
     if (sub && sub.toLowerCase() === "set") {
-        const key = args[idxAsk + 2];
-        if (!key) {
-            console.error('Falta la clave. Uso: npx smbm --ask set "TU_API_KEY"');
-            process.exit(1);
-        }
-        const where = setApiKey(key);
-        console.log(`✔ OPENAI_API_KEY guardada en: ${where}`);
-        process.exit(0);
+        (async () => {
+            await runWithSpinner("Guardando API key de OpenAI", () => {
+                const key = args[idxAsk + 2];
+                if (!key) throw new Error('Falta la clave. Uso: npx smbm --ask set "TU_API_KEY"');
+                const where = setApiKey(key);
+                console.log(`✔ OPENAI_API_KEY guardada en: ${where}`);
+            }, { cliArgs: args, minMs: 300 });
+            process.exit(0);
+        })();
+        return;
     }
 
-    // PREGUNTA: npx smbm --ask "pregunta..." [--model ...] [--stream] [--no-anim]
+    // PREGUNTA
     const q = sub && !sub.startsWith("--") ? sub : get("ask", null);
-    if (!q) {
-        console.error('Falta la pregunta. Ej: npx smbm --ask "¿Qué es DDD?"');
-        process.exit(1);
-    }
+    if (!q) { console.error('Falta la pregunta. Ej: npx smbm --ask "¿Qué es DDD?"'); process.exit(1); }
 
     const model = get("model", "gpt-4o-mini");
     const streaming = has("--stream");
-    const animationsEnabled = !has("--no-anim") && process.env.CI !== "true" && process.stdout.isTTY;
 
-    const spinner = animationsEnabled ? makeSpinner("Consultando OpenAI…").start() : null;
-
-    (async () => {
-        try {
-            if (streaming) {
+    if (streaming) {
+        (async () => {
+            await runWithSpinner("Consultando OpenAI…", async ({ stop }) => {
                 await askStream({
                     prompt: q,
                     model,
-                    onFirstToken: () => { if (spinner) spinner.stop(); }
+                    onFirstToken: () => { stop(); } // cortamos spinner en el primer token
                 });
                 process.stdout.write("\n");
-            } else {
-                const out = await askOnce({ prompt: q, model });
-                if (spinner) spinner.succeed("Respuesta recibida");
-                console.log(out);
-            }
-        } catch (e) {
-            if (spinner) spinner.fail("Fallo la consulta");
-            console.error("Error consultando OpenAI:", e.message);
-            process.exit(1);
-        }
-    })();
-
+            }, { cliArgs: args, minMs: 400 });
+            process.exit(0);
+        })();
+    } else {
+        (async () => {
+            const out = await runWithSpinner("Consultando OpenAI…", () => {
+                return askOnce({ prompt: q, model });
+            }, { cliArgs: args, minMs: 400 });
+            console.log(out);
+            process.exit(0);
+        })();
+    }
     return;
 }
 
