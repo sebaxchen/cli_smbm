@@ -5,6 +5,7 @@ const { ensureDocs }    = require("./scripts/ensure-docs.js");
 const { ensureDDD }     = require("./scripts/ensure-ddd.js");
 const { ensureEnv }     = require("./scripts/ensure-env.js");
 const { ensureLocales } = require("./scripts/ensure-locales.js");
+const {ensureDeps} = require ("./scripts/ensure-deps");
 
 const { makeSpinner } = require("./ui/spinner.js");
 const { runWithSpinner } = require("./ui/run.js");
@@ -223,5 +224,45 @@ if (has("--ask")) {
     return;
 }
 
-console.error("Nada que hacer. Usa --l, --d, --ddd, --env, --lo o --ask (o --help).");
+/* --dep: instala Vue + Prime + utilidades con barra de progreso */
+if (has("--dep")) {
+    (async () => {
+        const pm    = get("pm", null);     // --pm npm|yarn|pnpm|bun
+        const dev   = has("--dev");        // --dev => devDependencies
+        const batch = has("--batch");      // --batch => todo en una sola llamada
+
+        await runWithSpinner("Instalando dependencias", async ({ progress, update }) => {
+            let bar = null;
+            await ensureDeps({
+                pm, dev, batch,
+                onProgress: (ev) => {
+                    if (ev.type === "start") {
+                        // +2 pasos extra (pm + init) para que la barra “avance” antes de deps
+                        bar = progress(ev.total + 2, { label: "Progreso" });
+                    } else if (ev.type === "pm") {
+                        update(`Usando ${ev.pm}…`);
+                        bar?.tick();
+                    } else if (ev.type === "init") {
+                        update("Creando package.json…");
+                        bar?.tick();
+                    } else if (ev.type === "depStart") {
+                        update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
+                    } else if (ev.type === "dep") {
+                        bar?.tick();
+                    }
+                }
+            });
+        }, { cliArgs: args, minMs: 400 });
+
+        console.log("✔ Dependencias instaladas:");
+        console.log("  vue-i18n@11, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server");
+        console.log("ℹ Tip: si usas Vite/Vue, registra Pinia, i18n y PrimeVue en tu main.js/ts.");
+        process.exit(0);
+    })();
+    return;
+}
+
+
+
+console.error("Nada que hacer. Usa --l, --d, --deps, --ddd, --env, --lo o --ask (o --help).");
 process.exit(1);
