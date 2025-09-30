@@ -1,6 +1,6 @@
 {
   "name": "smbm",
-  "version": "1.1.17",
+  "version": "1.1.18",
   "description": "CLI: --l crea LICENSE.md, --d crea docs/, --ddd genera estructura DDD",
   "type": "commonjs",
   "main": "src/index.js",
