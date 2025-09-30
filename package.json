@@ -30,7 +30,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sebaxchen/smbm.git"
+    "url": "git+https://github.com/sebaxchen/cli_smbm.git"
   },
   "bugs": {
     "url": "https://github.com/sebaxchen/smbm/issues"

@@ -6,6 +6,7 @@ const { ensureDDD }     = require("./scripts/ensure-ddd.js");
 const { ensureEnv }     = require("./scripts/ensure-env.js");
 const { ensureLocales } = require("./scripts/ensure-locales.js");
 const {ensureDeps} = require ("./scripts/ensure-deps");
+const {ensureServer} = require ("./scripts/ensure-server")
 
 const { makeSpinner } = require("./ui/spinner.js");
 const { runWithSpinner } = require("./ui/run.js");
@@ -262,7 +263,61 @@ if (has("--deps")) {
     return;
 }
 
+/* --server: prepara carpeta server con db.json, routes.json, start.sh
+   y verifica/instala json-server si falta */
+if (has("--ser")) {
+    (async () => {
+        const pm     = get("pm", null);   // --pm npm|yarn|pnpm|bun
+        const dir    = get("dir", "server");
+        const force  = has("--force");
+        const noInst = has("--no-install"); // si quieres saltar la instalación
+
+        await runWithSpinner("Preparando servidor JSON", async ({ progress, update }) => {
+            const bar = progress(5, { label: "Setup" }); // pm + pkg + install + dir + files
+
+            const res = await ensureServer({
+                pm,
+                dir,
+                force,
+                installIfMissing: !noInst,
+                onEvent: (ev) => {
+                    switch (ev.type) {
+                        case "pm":
+                            update(`Usando ${ev.pm}…`); bar.tick(); break;
+                        case "pkginit":
+                            update("Creando package.json…"); bar.tick(); break;
+                        case "install:start":
+                            update("Instalando json-server…"); break;
+                        case "install:done":
+                            bar.tick(); break;
+                        case "dir":
+                            update(`Carpeta: ${ev.dir}`); bar.tick(); break;
+                        case "done":
+                            bar.tick(); break;
+                    }
+                }
+            });
+
+            console.log(`✔ Server en: ${res.dir}`);
+            res.files.forEach(f => {
+                const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+                console.log(`  - ${f.path} ${tag}`);
+            });
+
+            console.log("\nPara arrancar:");
+            console.log("  # POSIX (Git Bash/WSL/macOS/Linux)");
+            console.log("  sh server/start.sh");
+            console.log("  # o directamente:");
+            console.log("  npx json-server --watch server/db.json --routes server/routes.json");
+        }, { cliArgs: args, minMs: 400 });
+
+        process.exit(0);
+    })();
+    return;
+}
 
 
-console.error("Nada que hacer. Usa --l, --d, --deps, --ddd, --env, --lo o --ask (o --help).");
+
+
+console.error("Nada que hacer. Usa --l, --d, --deps, --ser,  --ddd, --env, --lo o --ask (o --help).");
 process.exit(1);
