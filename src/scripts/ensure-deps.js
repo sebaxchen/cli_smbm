@@ -3,7 +3,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
+const exists = p => { try { return fs.existsSync(p); } catch { return false; } };
 
 function detectPM(cwd = process.cwd()) {
     if (exists(path.join(cwd, "pnpm-lock.yaml"))) return "pnpm";
@@ -12,18 +12,19 @@ function detectPM(cwd = process.cwd()) {
     return "npm";
 }
 
-function run(cmd, args, opts = {}) {
+function run(cmd, args, opts = {}, onEvent) {
     return new Promise((resolve, reject) => {
+        onEvent?.({ type: "exec:start", cmd, args });
         const child = spawn(cmd, args, {
-            stdio: "inherit",
+            stdio: "inherit",             // dejamos que el gestor pinte su salida
             shell: process.platform === "win32",
             ...opts
         });
-        child.on("exit", code => code === 0
-            ? resolve()
-            : reject(new Error(`${cmd} ${args.join(" ")} -> exit ${code}`))
-        );
-        child.on("error", reject);
+        child.on("exit", code => {
+            onEvent?.({ type: "exec:end", code });
+            code === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(" ")} -> exit ${code}`));
+        });
+        child.on("error", (err) => { onEvent?.({ type: "exec:end", error: err }); reject(err); });
     });
 }
 
@@ -32,7 +33,7 @@ async function ensureDeps({
                               pm,
                               dev = false,
                               batch = false,
-                              onProgress // (ev) => void
+                              onProgress
                           } = {}) {
     const deps = [
         "vue-i18n@11",
@@ -50,38 +51,27 @@ async function ensureDeps({
     pm = pm || detectPM(cwd);
     onProgress?.({ type: "pm", pm });
 
-    // Asegura package.json (1 sola vez)
-    const hasPkg = exists(path.join(cwd, "package.json"));
-    if (!hasPkg) {
-        await run("npm", ["init", "-y"], { cwd });
+    if (!exists(path.join(cwd, "package.json"))) {
+        await run("npm", ["init", "-y"], { cwd }, onProgress);
         onProgress?.({ type: "init", created: true });
     }
 
-    const toArgs = (pm, pkg, dev) => {
-        if (pm === "npm")   return ["install", dev ? "-D" : "", pkg].filter(Boolean);
-        if (pm === "yarn")  return ["add",    dev ? "-D" : "", pkg].filter(Boolean);
-        if (pm === "pnpm")  return ["add",    dev ? "-D" : "", pkg].filter(Boolean);
-        if (pm === "bun")   return ["add",    dev ? "-d" : "", pkg].filter(Boolean);
-        throw new Error(`Gestor de paquetes desconocido: ${pm}`);
+    const toArgs = (pm, list, dev) => {
+        if (pm === "npm")   return ["install", dev ? "-D" : "", ...list].filter(Boolean);
+        if (pm === "yarn")  return ["add",    dev ? "-D" : "", ...list].filter(Boolean);
+        if (pm === "pnpm")  return ["add",    dev ? "-D" : "", ...list].filter(Boolean);
+        if (pm === "bun")   return ["add",    dev ? "-d" : "", ...list].filter(Boolean);
+        throw new Error(`Gestor desconocido: ${pm}`);
     };
 
     if (batch) {
-        // Instala todo de una; la barra sólo marcará un “mega paso”
-        const all = deps.join(" ");
-        const base = (pm === "npm") ? ["install"] :
-            (pm === "yarn" || pm === "pnpm") ? ["add"] :
-                (pm === "bun") ? ["add"] : null;
-        if (!base) throw new Error(`PM no soportado: ${pm}`);
-        const flag = (pm === "bun") ? (dev ? "-d" : "") : (dev ? "-D" : "");
-        const args = [...base, flag, ...deps].filter(Boolean);
-        await run(pm, args, { cwd });
+        await run(pm, toArgs(pm, deps, dev), { cwd }, onProgress);
         onProgress?.({ type: "dep", dep: "all", index: deps.length, total: deps.length, done: true });
     } else {
-        // Instala uno por uno para poder “tickear” la barra por paquete
         for (let i = 0; i < deps.length; i++) {
             const dep = deps[i];
             onProgress?.({ type: "depStart", dep, index: i + 1, total: deps.length });
-            await run(pm, toArgs(pm, dep, dev), { cwd });
+            await run(pm, toArgs(pm, [dep], dev), { cwd }, onProgress);
             onProgress?.({ type: "dep", dep, index: i + 1, total: deps.length });
         }
     }

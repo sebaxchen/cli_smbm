@@ -226,30 +226,34 @@ if (has("--ask")) {
 }
 
 /* --dep: instala Vue + Prime + utilidades con barra de progreso */
+
 if (has("--deps")) {
     (async () => {
-        const pm    = get("pm", null);     // --pm npm|yarn|pnpm|bun
-        const dev   = has("--dev");        // --dev => devDependencies
-        const batch = has("--batch");      // --batch => todo en una sola llamada
+        const pm    = get("pm", null);
+        const dev   = has("--dev");
+        const batch = has("--batch");
 
-        await runWithSpinner("Instalando dependencias", async ({ progress, update }) => {
+        await runWithSpinner("Instalando dependencias", async ({ progress, update, pause, resume }) => {
             let bar = null;
             await ensureDeps({
                 pm, dev, batch,
                 onProgress: (ev) => {
                     if (ev.type === "start") {
-                        // +2 pasos extra (pm + init) para que la barra “avance” antes de deps
-                        bar = progress(ev.total + 2, { label: "Progreso" });
+                        bar = progress(ev.total + 2, { label: "Progreso" }); // +pm +init
                     } else if (ev.type === "pm") {
-                        update(`Usando ${ev.pm}…`);
-                        bar?.tick();
+                        update(`Usando ${ev.pm}…`); bar?.tick();
                     } else if (ev.type === "init") {
-                        update("Creando package.json…");
-                        bar?.tick();
+                        update("Creando package.json…"); bar?.tick();
                     } else if (ev.type === "depStart") {
                         update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
                     } else if (ev.type === "dep") {
                         bar?.tick();
+                    } else if (ev.type === "exec:start") {
+                        // el gestor (npm/yarn/pnpm) empieza a escribir -> pausamos nuestra UI
+                        pause();
+                    } else if (ev.type === "exec:end") {
+                        // terminó la escritura del gestor -> reanudamos
+                        resume();
                     }
                 }
             });
@@ -257,11 +261,12 @@ if (has("--deps")) {
 
         console.log("✔ Dependencias instaladas:");
         console.log("  vue-i18n@11, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server");
-        console.log("ℹ Tip: si usas Vite/Vue, registra Pinia, i18n y PrimeVue en tu main.js/ts.");
+        console.log("ℹ Tip: usa --batch para menos “saltos” (instala todo de una).");
         process.exit(0);
     })();
     return;
 }
+
 
 /* --server: prepara carpeta server con db.json, routes.json, start.sh
    y verifica/instala json-server si falta */
