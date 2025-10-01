@@ -24,7 +24,7 @@
 
 ---
 
-## 🚀 Instalación rápida
+##  Instalación rápida
 
 No necesitas instalar globalmente:
 
