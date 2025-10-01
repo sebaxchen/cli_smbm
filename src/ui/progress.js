@@ -4,7 +4,7 @@ function makeProgress(total, { width = 24, label = "Progreso" } = {}) {
     const draw = () => {
         const ratio = Math.min(1, current / total);
         const filled = Math.round(ratio * width);
-        const bar = "█".repeat(filled) + "░".repeat(width - filled);
+        const bar = "||".repeat(filled) + "░".repeat(width - filled);
         const pct = (ratio * 100).toFixed(0).padStart(3, " ");
         process.stdout.write(`\r${label} [${bar}] ${pct}%`);
     };
