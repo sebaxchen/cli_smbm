@@ -3,7 +3,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const exists = p => { try { return fs.existsSync(p); } catch { return false; } };
+function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
 
 function detectPM(cwd = process.cwd()) {
     if (exists(path.join(cwd, "pnpm-lock.yaml"))) return "pnpm";
@@ -12,19 +12,14 @@ function detectPM(cwd = process.cwd()) {
     return "npm";
 }
 
-function run(cmd, args, opts = {}, onEvent) {
+// NO heredar stdout/err por defecto (para no interferir con la barra).
+// Si --verbose, heredamos para ver logs en vivo.
+function run(cmd, args, { cwd, verbose } = {}) {
     return new Promise((resolve, reject) => {
-        onEvent?.({ type: "exec:start", cmd, args });
-        const child = spawn(cmd, args, {
-            stdio: "inherit",             // dejamos que el gestor pinte su salida
-            shell: process.platform === "win32",
-            ...opts
-        });
-        child.on("exit", code => {
-            onEvent?.({ type: "exec:end", code });
-            code === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(" ")} -> exit ${code}`));
-        });
-        child.on("error", (err) => { onEvent?.({ type: "exec:end", error: err }); reject(err); });
+        const stdio = verbose ? "inherit" : ["ignore", "ignore", "ignore"];
+        const child = spawn(cmd, args, { stdio, shell: process.platform === "win32", cwd });
+        child.on("exit", code => code === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(" ")} -> exit ${code}`)));
+        child.on("error", reject);
     });
 }
 
@@ -33,7 +28,8 @@ async function ensureDeps({
                               pm,
                               dev = false,
                               batch = false,
-                              onProgress
+                              verbose = false,
+                              onProgress // (ev) => void
                           } = {}) {
     const deps = [
         "vue-i18n@11",
@@ -51,27 +47,33 @@ async function ensureDeps({
     pm = pm || detectPM(cwd);
     onProgress?.({ type: "pm", pm });
 
-    if (!exists(path.join(cwd, "package.json"))) {
-        await run("npm", ["init", "-y"], { cwd }, onProgress);
-        onProgress?.({ type: "init", created: true });
+    // Asegura package.json
+    const hasPkg = exists(path.join(cwd, "package.json"));
+    if (!hasPkg) {
+        await run("npm", ["init", "-y"], { cwd, verbose });
+        onProgress?.({ type: "init" });
     }
 
-    const toArgs = (pm, list, dev) => {
-        if (pm === "npm")   return ["install", dev ? "-D" : "", ...list].filter(Boolean);
-        if (pm === "yarn")  return ["add",    dev ? "-D" : "", ...list].filter(Boolean);
-        if (pm === "pnpm")  return ["add",    dev ? "-D" : "", ...list].filter(Boolean);
-        if (pm === "bun")   return ["add",    dev ? "-d" : "", ...list].filter(Boolean);
-        throw new Error(`Gestor desconocido: ${pm}`);
+    const toArgs = (pm, pkg, dev) => {
+        if (pm === "npm")   return ["install", dev ? "-D" : "", pkg].filter(Boolean);
+        if (pm === "yarn")  return ["add",    dev ? "-D" : "", pkg].filter(Boolean);
+        if (pm === "pnpm")  return ["add",    dev ? "-D" : "", pkg].filter(Boolean);
+        if (pm === "bun")   return ["add",    dev ? "-d" : "", pkg].filter(Boolean);
+        throw new Error(`Gestor de paquetes desconocido: ${pm}`);
     };
 
     if (batch) {
-        await run(pm, toArgs(pm, deps, dev), { cwd }, onProgress);
-        onProgress?.({ type: "dep", dep: "all", index: deps.length, total: deps.length, done: true });
+        const base = (pm === "npm") ? ["install"] : (pm === "yarn" || pm === "pnpm") ? ["add"] : ["add"]; // bun
+        const flag = (pm === "bun") ? (dev ? "-d" : "") : (dev ? "-D" : "");
+        const args = [...base, flag, ...deps].filter(Boolean);
+        onProgress?.({ type: "batchStart" });
+        await run(pm, args, { cwd, verbose });
+        onProgress?.({ type: "dep", dep: "all", index: deps.length, total: deps.length });
     } else {
         for (let i = 0; i < deps.length; i++) {
             const dep = deps[i];
             onProgress?.({ type: "depStart", dep, index: i + 1, total: deps.length });
-            await run(pm, toArgs(pm, [dep], dev), { cwd }, onProgress);
+            await run(pm, toArgs(pm, dep, dev), { cwd, verbose });
             onProgress?.({ type: "dep", dep, index: i + 1, total: deps.length });
         }
     }

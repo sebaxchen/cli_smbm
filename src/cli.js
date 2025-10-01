@@ -7,9 +7,12 @@ const { ensureEnv }     = require("./scripts/ensure-env.js");
 const { ensureLocales } = require("./scripts/ensure-locales.js");
 const {ensureDeps} = require ("./scripts/ensure-deps");
 const {ensureServer} = require ("./scripts/ensure-server")
+const { makeSmoothProgress } = require("./ui/progress.js");
+
 
 const { makeSpinner } = require("./ui/spinner.js");
 const { runWithSpinner } = require("./ui/run.js");
+
 
 try { require("dotenv").config(); } catch {}
 const { askOnce, askStream } = require("./scripts/ask-openai.js");
@@ -225,47 +228,64 @@ if (has("--ask")) {
     return;
 }
 
-/* --dep: instala Vue + Prime + utilidades con barra de progreso */
-
+/* --dep: instala Vue + Prime + utilidades con barra suave (1% por tick) */
 if (has("--deps")) {
     (async () => {
-        const pm    = get("pm", null);
-        const dev   = has("--dev");
-        const batch = has("--batch");
+        const pm      = get("pm", null);     // --pm npm|yarn|pnpm|bun
+        const dev     = has("--dev");        // --dev => devDependencies
+        const batch   = has("--batch");      // --batch => todo en una llamada
+        const verbose = has("--verbose");    // --verbose => heredar logs del instalador
 
-        await runWithSpinner("Instalando dependencias", async ({ progress, update, pause, resume }) => {
-            let bar = null;
+        // Usamos runWithSpinner para título y errores, pero detenemos el spinner
+        // y mostramos nuestra barra suave en su lugar.
+        await runWithSpinner("Instalando dependencias…", async ({ stop, update }) => {
+            let totalUnits = 0;
+            let stepPct = 0;
+            const bar = makeSmoothProgress({ label: "Instalando", width: 32, stepMs: 35 });
+
             await ensureDeps({
-                pm, dev, batch,
+                pm, dev, batch, verbose,
                 onProgress: (ev) => {
                     if (ev.type === "start") {
-                        bar = progress(ev.total + 2, { label: "Progreso" }); // +pm +init
+                        // pm + (posible init) + N dependencias
+                        totalUnits = ev.total + 2; // +2: pm + init (aunque init puede no ocurrir, lo compensamos con tiempo)
+                        stepPct = 100 / totalUnits;
+                        // matamos el spinner y dejamos solo la barra
+                        stop?.();
+                        bar.to(1); // arranque visual
                     } else if (ev.type === "pm") {
-                        update(`Usando ${ev.pm}…`); bar?.tick();
+                        update(`Usando ${ev.pm}…`);
+                        bar.to(stepPct * 1);
                     } else if (ev.type === "init") {
-                        update("Creando package.json…"); bar?.tick();
+                        update("Creando package.json…");
+                        bar.to(stepPct * 2);
+                    } else if (ev.type === "batchStart") {
+                        update("Instalando paquetes (batch) …");
+                        // Deja que la barra siga subiendo por tiempo hasta el final
                     } else if (ev.type === "depStart") {
                         update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
+                        // objetivo parcial: pm(1) + init(1) + índice actual
+                        const targetUnits = 2 + (ev.index - 1); // antes de instalar completarse
+                        bar.to(stepPct * targetUnits + 1);      // +1 para que avance algo al comenzar
                     } else if (ev.type === "dep") {
-                        bar?.tick();
-                    } else if (ev.type === "exec:start") {
-                        // el gestor (npm/yarn/pnpm) empieza a escribir -> pausamos nuestra UI
-                        pause();
-                    } else if (ev.type === "exec:end") {
-                        // terminó la escritura del gestor -> reanudamos
-                        resume();
+                        // completado ese paquete
+                        const targetUnits = 2 + ev.index;
+                        bar.to(stepPct * targetUnits);
                     }
                 }
             });
-        }, { cliArgs: args, minMs: 400 });
 
-        console.log("✔ Dependencias instaladas:");
-        console.log("  vue-i18n@11, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server");
-        console.log("ℹ Tip: usa --batch para menos “saltos” (instala todo de una).");
+            // Terminar al 100% suavemente
+            bar.done("Dependencias instaladas");
+            console.log("✔ Paquetes: vue-i18n@11, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server");
+            console.log("ℹ Tip: usa --verbose si quieres ver la salida del instalador.");
+        }, { cliArgs: args, minMs: 0 });
+
         process.exit(0);
     })();
     return;
 }
+
 
 
 /* --server: prepara carpeta server con db.json, routes.json, start.sh
