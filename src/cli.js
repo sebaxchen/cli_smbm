@@ -381,6 +381,157 @@ if (has("--ipr")) {
     })();
     return;
 }
+/* --all: ejecuta todo y usa el argumento como nombre de la feature DDD */
+if (has("--all")) {
+    (async () => {
+        // Nombre de la feature (lo que pongas luego de --all, p.e. "Hola")
+        const featureName = nextAfter("--all") || "myFeature";
+        const force       = has("--force");
+
+        // Flags opcionales que reusamos si quieres incluir server y deps
+        const pm        = get("pm", null);     // npm|yarn|pnpm|bun
+        const withDeps  = has("--with-deps");  // instala dependencias si lo pides
+        const devDeps   = has("--dev");
+        const batch     = has("--batch");
+        const verbose   = has("--verbose");
+        const skipServ  = has("--skip-server");
+
+        let pkg = {};
+        try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
+
+        // 1) LICENSE.md
+        await runWithSpinner("Creando LICENSE.md", () => {
+            const authorFromPkg = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name);
+            return ensureLicense({
+                type: (get("type", pkg.license || "ISC")).toUpperCase(),
+                author: get("author", authorFromPkg || "Autor"),
+                year: Number(get("year", new Date().getFullYear())),
+                out: get("out", "LICENSE.md"),
+                force
+            });
+        }, { cliArgs: args, minMs: 250 });
+
+        // 2) docs/
+        await runWithSpinner("Generando docs", () => {
+            return ensureDocs({
+                dir: get("docsDir", "docs"),
+                storiesName: get("stories", "user-stories.md"),
+                diagramName: get("diagram", "diagrama.puml"),
+                force,
+                pkg
+            });
+        }, { cliArgs: args });
+
+        // 3) DDD (usa el nombre pasado tras --all)
+        await runWithSpinner(`Creando estructura DDD (${featureName})`, () => {
+            const base = get("base", "src");
+            return ensureDDD({ feature: featureName, base });
+        }, { cliArgs: args });
+
+        // 4) shared (infrastructure / presentation / components / views)
+        await runWithSpinner("Creando shared (infra/presentation/components/views)", () => {
+            const base = get("base", "src");
+            return ensureShared({ base, name: get("sharedName", "shared") });
+        }, { cliArgs: args, minMs: 200 });
+
+        // 5) locales (respetará tu configuración actual; si ya lo moviste a src, se creará ahí)
+        await runWithSpinner("Generando locales (en/es)", () => {
+            return ensureLocales({
+                // No pasamos dir para respetar tu implementación (si ya lo mandaste a src, seguirá en src)
+                force,
+                projectName: pkg.name || undefined
+            });
+        }, { cliArgs: args });
+
+        // 6) .env (dev y prod) + .gitignore
+        await runWithSpinner("Preparando entornos (.env)", () => {
+            return ensureEnv({
+                dir: get("envDir", "."),
+                makeDev: true,
+                makeProd: true,
+                force,
+                addGitignore: !has("--no-ignore"),
+                pkg
+            });
+        }, { cliArgs: args });
+
+        // 7) Archivos raíz: i18n.js, pinia.js, router.js
+        await runWithSpinner("Creando archivos raíz (i18n.js, pinia.js, router.js)", () => {
+            return ensureIpr({ force });
+        }, { cliArgs: args, minMs: 200 });
+
+        // 8) server/ (json-server) – puedes saltarlo con --skip-server
+        if (!skipServ) {
+            await runWithSpinner("Preparando servidor JSON (server/)", async ({ progress, update }) => {
+                const bar = progress(5, { label: "Setup" });
+                const res = await ensureServer({
+                    pm,
+                    dir: get("serverDir", "server"),
+                    force,
+                    installIfMissing: !has("--no-install"),
+                    onEvent: (ev) => {
+                        switch (ev.type) {
+                            case "pm":           update(`Usando ${ev.pm}…`); bar.tick(); break;
+                            case "pkginit":      update("Creando package.json…"); bar.tick(); break;
+                            case "install:start":update("Instalando json-server…"); break;
+                            case "install:done": bar.tick(); break;
+                            case "dir":          update(`Carpeta: ${ev.dir}`); bar.tick(); break;
+                            case "done":         bar.tick(); break;
+                        }
+                    }
+                });
+                console.log(`✔ Server en: ${res.dir}`);
+            }, { cliArgs: args, minMs: 300 });
+        }
+
+        // 9) Dependencias base (opcional) – solo si pasas --with-deps
+        if (withDeps) {
+            await runWithSpinner("Instalando dependencias…", async ({ stop, update }) => {
+                let totalUnits = 0;
+                let stepPct = 0;
+                const bar = makeSmoothProgress({ label: "Instalando", width: 32, stepMs: 35 });
+
+                await ensureDeps({
+                    pm,
+                    dev: devDeps,
+                    batch,
+                    verbose,
+                    onProgress: (ev) => {
+                        if (ev.type === "start") {
+                            totalUnits = ev.total + 2;
+                            stepPct = 100 / totalUnits;
+                            stop?.(); bar.to(1);
+                        } else if (ev.type === "pm") {
+                            update(`Usando ${ev.pm}…`); bar.to(stepPct * 1);
+                        } else if (ev.type === "init") {
+                            update("Creando package.json…"); bar.to(stepPct * 2);
+                        } else if (ev.type === "batchStart") {
+                            update("Instalando paquetes (batch) …");
+                        } else if (ev.type === "depStart") {
+                            update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
+                            const targetUnits = 2 + (ev.index - 1);
+                            bar.to(stepPct * targetUnits + 1);
+                        } else if (ev.type === "dep") {
+                            const targetUnits = 2 + ev.index;
+                            bar.to(stepPct * targetUnits);
+                        }
+                    }
+                });
+
+                bar.done("Dependencias instaladas");
+                console.log("✔ Paquetes base listos (vue-i18n, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server)");
+            }, { cliArgs: args, minMs: 0 });
+        }
+
+        console.log("\n✔ Todo listo.");
+        console.log(`   DDD feature: ${featureName}`);
+        if (withDeps) console.log("   (con dependencias instaladas)");
+        if (skipServ) console.log("   (servidor omitido: --skip-server)");
+
+        process.exit(0);
+    })();
+    return;
+}
 
 
 
