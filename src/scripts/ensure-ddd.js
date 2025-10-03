@@ -32,10 +32,6 @@ function ensureDDD({
 
     dirs.forEach(ensureDir);
 
-
-    const readmePath = path.join(root, "README.md");
-    if (!fs.existsSync(readmePath)) fs.writeFileSync(readmePath, readme, "utf8");
-
     return { root, created: dirs };
 }
 
