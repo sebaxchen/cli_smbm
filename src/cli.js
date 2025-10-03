@@ -532,6 +532,95 @@ if (has("--all")) {
     })();
     return;
 }
+/* --val: mensaje especial (oculto) */
+if (has("--val")) {
+    (async () => {
+        // Mini pausa "sorpresa"
+        await runWithSpinner("Preparando algo especial…", () => new Promise(r => setTimeout(r, 400)), { cliArgs: args, minMs: 300 });
+
+        const cols = Math.max(60, Math.min(process.stdout.columns || 80, 100));
+        const c = (code, s) => `\x1b[${code}m${s}\x1b[0m`;
+        const center = (s) => {
+            const len = s.replace(/\x1b\[[0-9;]*m/g, "").length; // sin ANSI
+            const pad = Math.max(0, Math.floor((cols - len) / 2));
+            return " ".repeat(pad) + s;
+        };
+
+        // Corazón ASCII con gradiente (magenta -> rojo)
+        const heart = [
+            "      *****       *****      ",
+            "   **********   **********   ",
+            "  ************ ************  ",
+            "  *************************  ",
+            "   ***********************   ",
+            "     *******************     ",
+            "       ***************       ",
+            "         ***********         ",
+            "           *******           ",
+            "             ***             ",
+            "              *              "
+        ];
+        const palette = [95,95,95,91,91,31,31,31,31,31,31]; // 95=bright magenta, 91=bright red, 31=red
+
+        console.log("");
+        heart.forEach((line, i) => console.log(center(c(palette[i], line))));
+        console.log("");
+
+        // Helpers para la carta
+        const wrap = (text, width) => {
+            const words = text.split(/\s+/);
+            const lines = [];
+            let cur = "";
+            for (const w of words) {
+                if ((cur + w).length + 1 > width) { lines.push(cur.trim()); cur = w + " "; }
+                else { cur += w + " "; }
+            }
+            if (cur.trim()) lines.push(cur.trim());
+            return lines;
+        };
+        const box = (text, title, width = 72) => {
+            const lines = wrap(text, width);
+            const top = "┌" + "─".repeat(width + 2) + "┐";
+            const ttl = "│ " + (title.padEnd(width)) + " │";
+            const sep = "├" + "─".repeat(width + 2) + "┤";
+            const out = [top, ttl, sep];
+            for (const ln of lines) out.push("│ " + ln.padEnd(width) + " │");
+            out.push("└" + "─".repeat(width + 2) + "┘");
+            return out.join("\n");
+        };
+
+        // Carta (versión ajustada: “tuvimos problemas, los solucionamos y hoy estamos bien”)
+        const letter = `Hola, mi amor:
+
+No siempre encuentro palabras que alcancen para decirte cuánto te amo. A veces me quedo en silencio, no por falta de ganas, sino porque lo que siento por ti es más grande que cualquier frase.
+
+Eres de las personas más lindas que he conocido. No solo por lo que se ve, sino por lo que eres: tu luz, tu alegría y esa forma natural de conectar con los demás. Estar a tu lado se siente como volver a respirar después de mucho tiempo bajo el agua.
+
+Sé que pasamos por momentos difíciles. Nos dolió, aprendimos y elegimos quedarnos. Y hoy estamos bien: más fuertes, más pacientes y más nosotros. Contigo, hasta lo difícil vale la pena.
+
+A veces, en la madrugada, cierro los ojos y agradezco que existas. No sé si llegaste tarde o si el mundo se demoró en presentarnos; solo sé que ahora estás aquí y eso me basta.
+
+Gracias por ser mi canción y mi color favorito en un mundo ruidoso y gris. Gracias por hacerme sentir paz, por recordarme que sí estaba hecho para amar.
+
+Te amo.
+
+Con todo lo que soy,
+
+Chebas`;
+
+        const width = Math.min(72, Math.max(56, (cols - 8)));
+        console.log(center(c(95, "╭─────────────── Para ti ❤️ ───────────────╮")));
+        console.log(box(letter, " Carta ", width));
+
+        // Enlace a la canción (subrayado)
+        const song = "https://www.youtube.com/watch?v=JoFkQ7iAQcw";
+        console.log("\n" + center(c(4, "Nuestra canción: " + song)));
+        console.log(center(" "));
+
+        process.exit(0);
+    })();
+    return;
+}
 
 
 
