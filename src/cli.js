@@ -381,16 +381,15 @@ if (has("--ipr")) {
     })();
     return;
 }
-/* --all: ejecuta todo y usa el argumento como nombre de la feature DDD */
+/* --all: ejecuta todo con barra de progreso suave y usa el argumento como nombre de la feature DDD */
 if (has("--all")) {
     (async () => {
-        // Nombre de la feature (lo que pongas luego de --all, p.e. "Hola")
         const featureName = nextAfter("--all") || "myFeature";
         const force       = has("--force");
 
-        // Flags opcionales que reusamos si quieres incluir server y deps
+        // Opcionales
         const pm        = get("pm", null);     // npm|yarn|pnpm|bun
-        const withDeps  = has("--with-deps");  // instala dependencias si lo pides
+        const withDeps  = has("--with-deps");
         const devDeps   = has("--dev");
         const batch     = has("--batch");
         const verbose   = has("--verbose");
@@ -399,53 +398,55 @@ if (has("--all")) {
         let pkg = {};
         try { pkg = JSON.parse(fs.readFileSync("package.json","utf8")); } catch {}
 
-        // 1) LICENSE.md
-        await runWithSpinner("Creando LICENSE.md", () => {
-            const authorFromPkg = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name);
-            return ensureLicense({
+        await runWithSpinner("Armando proyecto…", async ({ stop, update }) => {
+            // Usaremos UNA barra "suave" para todas las etapas
+            stop(); // ocultar spinner
+            const baseSteps = 7; // licencia, docs, ddd, shared, locales, env, ipr
+            const totalSteps = baseSteps + (skipServ ? 0 : 1) + (withDeps ? 1 : 0);
+            const stepPct = 100 / totalSteps;
+            let step = 0;
+
+            const bar = makeSmoothProgress({ label: "Progreso", width: 32, stepMs: 35 });
+            const tick = (msg) => { step += 1; update(msg); bar.to(Math.min(99, Math.round(step * stepPct))); };
+
+            // 1) LICENSE.md
+            tick("Creando LICENSE.md…");
+            await ensureLicense({
                 type: (get("type", pkg.license || "ISC")).toUpperCase(),
-                author: get("author", authorFromPkg || "Autor"),
+                author: (() => {
+                    const a = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name);
+                    return get("author", a || "Autor");
+                })(),
                 year: Number(get("year", new Date().getFullYear())),
                 out: get("out", "LICENSE.md"),
                 force
             });
-        }, { cliArgs: args, minMs: 250 });
 
-        // 2) docs/
-        await runWithSpinner("Generando docs", () => {
-            return ensureDocs({
+            // 2) docs/
+            tick("Generando docs…");
+            await ensureDocs({
                 dir: get("docsDir", "docs"),
                 storiesName: get("stories", "user-stories.md"),
                 diagramName: get("diagram", "diagrama.puml"),
                 force,
                 pkg
             });
-        }, { cliArgs: args });
 
-        // 3) DDD (usa el nombre pasado tras --all)
-        await runWithSpinner(`Creando estructura DDD (${featureName})`, () => {
-            const base = get("base", "src");
-            return ensureDDD({ feature: featureName, base });
-        }, { cliArgs: args });
+            // 3) DDD
+            tick(`Creando DDD (${featureName})…`);
+            await ensureDDD({ feature: featureName, base: get("base", "src") });
 
-        // 4) shared (infrastructure / presentation / components / views)
-        await runWithSpinner("Creando shared (infra/presentation/components/views)", () => {
-            const base = get("base", "src");
-            return ensureShared({ base, name: get("sharedName", "shared") });
-        }, { cliArgs: args, minMs: 200 });
+            // 4) shared (infra/presentation/components/views)
+            tick("Creando shared (infra/presentation/components/views)…");
+            await ensureShared({ base: get("base", "src"), name: get("sharedName", "shared") });
 
-        // 5) locales (respetará tu configuración actual; si ya lo moviste a src, se creará ahí)
-        await runWithSpinner("Generando locales (en/es)", () => {
-            return ensureLocales({
-                // No pasamos dir para respetar tu implementación (si ya lo mandaste a src, seguirá en src)
-                force,
-                projectName: pkg.name || undefined
-            });
-        }, { cliArgs: args });
+            // 5) locales (en/es) – si ya moviste a src, tu ensure-locales lo hará ahí
+            tick("Generando locales (en/es)…");
+            await ensureLocales({ force, projectName: pkg.name || undefined });
 
-        // 6) .env (dev y prod) + .gitignore
-        await runWithSpinner("Preparando entornos (.env)", () => {
-            return ensureEnv({
+            // 6) .env (dev y prod) + .gitignore
+            tick("Preparando entornos (.env)…");
+            await ensureEnv({
                 dir: get("envDir", "."),
                 makeDev: true,
                 makeProd: true,
@@ -453,86 +454,52 @@ if (has("--all")) {
                 addGitignore: !has("--no-ignore"),
                 pkg
             });
-        }, { cliArgs: args });
 
-        // 7) Archivos raíz: i18n.js, pinia.js, router.js
-        await runWithSpinner("Creando archivos raíz (i18n.js, pinia.js, router.js)", () => {
-            return ensureIpr({ force });
-        }, { cliArgs: args, minMs: 200 });
+            // 7) Archivos raíz: i18n.js, pinia.js, router.js
+            tick("Creando i18n.js, pinia.js y router.js…");
+            await ensureIpr({ force });
 
-        // 8) server/ (json-server) – puedes saltarlo con --skip-server
-        if (!skipServ) {
-            await runWithSpinner("Preparando servidor JSON (server/)", async ({ progress, update }) => {
-                const bar = progress(5, { label: "Setup" });
-                const res = await ensureServer({
+            // 8) server/ (opcional)
+            if (!skipServ) {
+                tick("Preparando servidor JSON (server/)…");
+                await ensureServer({
                     pm,
                     dir: get("serverDir", "server"),
                     force,
                     installIfMissing: !has("--no-install"),
                     onEvent: (ev) => {
-                        switch (ev.type) {
-                            case "pm":           update(`Usando ${ev.pm}…`); bar.tick(); break;
-                            case "pkginit":      update("Creando package.json…"); bar.tick(); break;
-                            case "install:start":update("Instalando json-server…"); break;
-                            case "install:done": bar.tick(); break;
-                            case "dir":          update(`Carpeta: ${ev.dir}`); bar.tick(); break;
-                            case "done":         bar.tick(); break;
-                        }
+                        // Solo actualizamos el texto mientras avanza esta etapa
+                        if (ev.type === "pm")         update(`Usando ${ev.pm}…`);
+                        if (ev.type === "pkginit")    update("Creando package.json…");
+                        if (ev.type === "install:start") update("Instalando json-server…");
+                        if (ev.type === "dir")        update(`Carpeta: ${ev.dir}`);
                     }
                 });
-                console.log(`✔ Server en: ${res.dir}`);
-            }, { cliArgs: args, minMs: 300 });
-        }
+            }
 
-        // 9) Dependencias base (opcional) – solo si pasas --with-deps
-        if (withDeps) {
-            await runWithSpinner("Instalando dependencias…", async ({ stop, update }) => {
-                let totalUnits = 0;
-                let stepPct = 0;
-                const bar = makeSmoothProgress({ label: "Instalando", width: 32, stepMs: 35 });
-
+            // 9) Dependencias (opcional)
+            if (withDeps) {
+                tick("Instalando dependencias base…");
                 await ensureDeps({
-                    pm,
-                    dev: devDeps,
-                    batch,
-                    verbose,
-                    onProgress: (ev) => {
-                        if (ev.type === "start") {
-                            totalUnits = ev.total + 2;
-                            stepPct = 100 / totalUnits;
-                            stop?.(); bar.to(1);
-                        } else if (ev.type === "pm") {
-                            update(`Usando ${ev.pm}…`); bar.to(stepPct * 1);
-                        } else if (ev.type === "init") {
-                            update("Creando package.json…"); bar.to(stepPct * 2);
-                        } else if (ev.type === "batchStart") {
-                            update("Instalando paquetes (batch) …");
-                        } else if (ev.type === "depStart") {
-                            update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
-                            const targetUnits = 2 + (ev.index - 1);
-                            bar.to(stepPct * targetUnits + 1);
-                        } else if (ev.type === "dep") {
-                            const targetUnits = 2 + ev.index;
-                            bar.to(stepPct * targetUnits);
-                        }
-                    }
+                    pm, dev: devDeps, batch, verbose,
+                    // Si quieres granularidad, podrías mapear ev.index al % dentro de este paso,
+                    // pero mantenemos el avance global por etapas para que la barra siga suave.
                 });
+            }
 
-                bar.done("Dependencias instaladas");
-                console.log("✔ Paquetes base listos (vue-i18n, primeicons, primevue, @primeuix/themes, pinia, axios, primeflex, json-server)");
-            }, { cliArgs: args, minMs: 0 });
-        }
+            bar.done("Proyecto listo");
+        }, { cliArgs: args, minMs: 0 });
 
         console.log("\n✔ Todo listo.");
         console.log(`   DDD feature: ${featureName}`);
         if (withDeps) console.log("   (con dependencias instaladas)");
         if (skipServ) console.log("   (servidor omitido: --skip-server)");
-
         process.exit(0);
     })();
     return;
 }
-/* --val: mensaje especial (oculto) */
+
+
 if (has("--val")) {
     (async () => {
         // Mini pausa "sorpresa"
@@ -616,6 +583,177 @@ Chebas`;
         const song = "https://www.youtube.com/watch?v=JoFkQ7iAQcw";
         console.log("\n" + center(c(4, "Nuestra canción: " + song)));
         console.log(center(" "));
+
+        process.exit(0);
+    })();
+    return;
+}
+
+/* --del: elimina TODO lo creado por --all (o partes con flags) con barra suave */
+if (has("--del")) {
+    (async () => {
+        const path = require("node:path");
+        const { spawnSync } = require("node:child_process");
+
+        await runWithSpinner("Eliminando recursos…", async ({ stop, update }) => {
+            stop(); // usamos barra "suave"
+            const bar = makeSmoothProgress({ label: "Eliminando", width: 32, stepMs: 35 });
+
+            // === Config coherente con --all ===
+            const base      = get("base", "src");
+            const baseDir   = path.join(process.cwd(), base);
+            const docsDir   = path.join(process.cwd(), get("docsDir", "docs"));
+            const sharedDir = path.join(baseDir, get("sharedName", "shared"));
+            const localesSrc= path.join(process.cwd(), "src", "locales");
+            const localesRt = path.join(process.cwd(), "locales");
+            const envDir    = path.join(process.cwd(), get("envDir", "."));
+            const serverDir = path.join(process.cwd(), get("serverDir", "server"));
+            const license   = path.join(process.cwd(), get("out", "LICENSE.md"));
+
+            const uninstallPkgs = has("--deps"); // si quieres también desinstalar lo que instaló --with-deps
+            const pm = get("pm", (() => {
+                // autodetecta si no pasas --pm
+                const has = f => fs.existsSync(path.join(process.cwd(), f));
+                if (has("pnpm-lock.yaml")) return "pnpm";
+                if (has("yarn.lock"))      return "yarn";
+                if (has("bun.lockb"))      return "bun";
+                return "npm";
+            })());
+
+            const fsExists = p => { try { return fs.existsSync(p); } catch { return false; } };
+
+            // Detecta features DDD (o usa --ddd --name Nombre)
+            const wantOnly = {
+                ddd:   has("--ddd"),
+                docs:  has("--docs"),
+                sh:    has("--shared") || has("--sh"),
+                lo:    has("--lo") || has("--locales"),
+                env:   has("--env"),
+                ipr:   has("--ipr"),
+                serv:  has("--s") || has("--server"),
+                lic:   has("--l") || has("--license"),
+                allSpecific: false
+            };
+            wantOnly.allSpecific = Object.values({ ...wantOnly }).some(Boolean);
+
+            // Construimos operaciones (cada op incrementa la barra)
+            const ops = [];
+
+            // DDD
+            if (!wantOnly.allSpecific || wantOnly.ddd) {
+                const nameFromFlag = get("name", nextAfter("--ddd")) || null;
+                const markers = ["application","domain","infrastructure","presentation"];
+                const pushDDD = (dir) => {
+                    if (markers.every(d => fsExists(path.join(dir, d)))) {
+                        ops.push({ label: `DDD:${path.basename(dir)}`, run: () => fs.rmSync(dir, { recursive: true, force: true }) });
+                    }
+                };
+                if (nameFromFlag) {
+                    pushDDD(path.join(baseDir, nameFromFlag));
+                } else {
+                    let candidates = [];
+                    try {
+                        candidates = fs.readdirSync(baseDir, { withFileTypes: true })
+                            .filter(d => d.isDirectory())
+                            .map(d => path.join(baseDir, d.name));
+                    } catch {}
+                    candidates.forEach(pushDDD);
+                }
+            }
+
+            // docs/
+            if (!wantOnly.allSpecific || wantOnly.docs) {
+                if (fsExists(docsDir)) ops.push({ label: "docs/", run: () => fs.rmSync(docsDir, { recursive: true, force: true }) });
+            }
+
+            // shared/
+            if (!wantOnly.allSpecific || wantOnly.sh) {
+                if (fsExists(sharedDir)) ops.push({ label: "shared/", run: () => fs.rmSync(sharedDir, { recursive: true, force: true }) });
+            }
+
+            // locales (src/locales y fallback locales/)
+            if (!wantOnly.allSpecific || wantOnly.lo) {
+                if (fsExists(localesSrc)) ops.push({ label: "src/locales", run: () => fs.rmSync(localesSrc, { recursive: true, force: true }) });
+                if (fsExists(localesRt))  ops.push({ label: "locales",     run: () => fs.rmSync(localesRt,  { recursive: true, force: true }) });
+            }
+
+            // .env.* y revertir .gitignore si agregó esas líneas
+            if (!wantOnly.allSpecific || wantOnly.env) {
+                const envDev = path.join(envDir, ".env.developer");
+                const envProd= path.join(envDir, ".env.production");
+                if (fsExists(envDev))  ops.push({ label: ".env.developer",  run: () => fs.rmSync(envDev,  { force: true }) });
+                if (fsExists(envProd)) ops.push({ label: ".env.production", run: () => fs.rmSync(envProd, { force: true }) });
+
+                const gitignore = path.join(process.cwd(), ".gitignore");
+                if (fsExists(gitignore)) {
+                    ops.push({
+                        label: ".gitignore (limpieza líneas .env)",
+                        run: () => {
+                            try {
+                                const raw = fs.readFileSync(gitignore, "utf8").split(/\r?\n/);
+                                const toRemove = new Set([".env.developer", ".env.production"]);
+                                const cleaned = raw.filter(line => !toRemove.has(line.trim()));
+                                fs.writeFileSync(gitignore, cleaned.join("\n"), "utf8");
+                            } catch {}
+                        }
+                    });
+                }
+            }
+
+            // Archivos raíz: i18n.js, pinia.js, router.js
+            if (!wantOnly.allSpecific || wantOnly.ipr) {
+                ["i18n.js", "pinia.js", "router.js"].forEach(f => {
+                    const p = path.join(process.cwd(), f);
+                    if (fsExists(p)) ops.push({ label: f, run: () => fs.rmSync(p, { force: true }) });
+                });
+            }
+
+            // server/
+            if (!wantOnly.allSpecific || wantOnly.serv) {
+                if (fsExists(serverDir)) ops.push({ label: "server/", run: () => fs.rmSync(serverDir, { recursive: true, force: true }) });
+            }
+
+            // LICENSE.md
+            if (!wantOnly.allSpecific || wantOnly.lic) {
+                if (fsExists(license)) ops.push({ label: "LICENSE.md", run: () => fs.rmSync(license, { force: true }) });
+            }
+
+            // Desinstalar dependencias instaladas por --with-deps (opcional con --deps)
+            if (uninstallPkgs) {
+                const pkgs = ["vue-i18n", "primeicons", "primevue", "@primeuix/themes", "pinia", "axios", "primeflex", "json-server"];
+                ops.push({
+                    label: `Desinstalando deps (${pm})`,
+                    run: () => {
+                        try {
+                            const cmdMap = {
+                                npm:  ["npm",  ["uninstall", ...pkgs]],
+                                yarn: ["yarn", ["remove",    ...pkgs]],
+                                pnpm: ["pnpm", ["remove",    ...pkgs]],
+                                bun:  ["bun",  ["remove",    ...pkgs]],
+                            };
+                            const [bin, args] = cmdMap[pm] || cmdMap.npm;
+                            const res = spawnSync(bin, args, { stdio: "ignore" });
+                            // ignoramos el código de salida para no romper la limpieza
+                        } catch {}
+                    }
+                });
+            }
+
+            // Ejecutar operaciones con barra
+            if (ops.length === 0) {
+                update("Nada que borrar");
+                bar.done("Sin cambios");
+            } else {
+                let done = 0;
+                for (const op of ops) {
+                    update(`Borrando ${op.label}…`);
+                    try { op.run(); } catch {}
+                    done++;
+                    bar.to(Math.round((done / ops.length) * 100));
+                }
+                bar.done("Eliminación completada");
+            }
+        }, { cliArgs: args, minMs: 0 });
 
         process.exit(0);
     })();
