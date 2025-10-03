@@ -21,7 +21,7 @@ function ensureLocales({
                            force = false,
                            projectName
                        } = {}) {
-    const targetDir = path.isAbsolute(dir) ? dir : path.join(cwd, dir);
+    const targetDir = path.isAbsolute(dir) ? dir : path.join(cwd, "src", dir);
     ensureDir(targetDir);
 
     const enData = {

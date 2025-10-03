@@ -5,21 +5,16 @@ const path = require("node:path");
 function ensureDir(p) {
     if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
-function touch(p) {
-    if (!fs.existsSync(p)) fs.writeFileSync(p, "", "utf8");
-}
 
 function toSafeName(s, def = "myFeature") {
     if (!s || typeof s !== "string") return def;
     return s.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
-
 function ensureDDD({
                        cwd = process.cwd(),
                        base = "src",
-                       feature = "myFeature",
-                       makeGitkeep = true
+                       feature = "myFeature"
                    } = {}) {
     const feat = toSafeName(feature);
     const root = path.join(cwd, base, feat);
@@ -31,14 +26,11 @@ function ensureDDD({
         "domain/model",
         "infrastructure",
         "presentation",
-        "presentation/components"
+        "presentation/components",
+        "presentation/views"
     ].map(d => path.join(root, d));
 
     dirs.forEach(ensureDir);
-
-    if (makeGitkeep) {
-        dirs.forEach(d => touch(path.join(d, ".gitkeep")));
-    }
 
     // README minimal en la raíz de la feature
     const readme = `# ${feat} (DDD)
@@ -47,6 +39,7 @@ function ensureDDD({
 - domain/model/
 - infrastructure/
 - presentation/components/
+- presentation/views/
 `;
     const readmePath = path.join(root, "README.md");
     if (!fs.existsSync(readmePath)) fs.writeFileSync(readmePath, readme, "utf8");

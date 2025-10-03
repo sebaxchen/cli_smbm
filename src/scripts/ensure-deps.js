@@ -40,6 +40,7 @@ async function ensureDeps({
         "axios",
         "primeflex",
         "json-server",
+        "vue-router@4",
     ];
 
     onProgress?.({ type: "start", total: deps.length, deps });

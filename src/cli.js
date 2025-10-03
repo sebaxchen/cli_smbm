@@ -8,6 +8,9 @@ const { ensureLocales } = require("./scripts/ensure-locales.js");
 const {ensureDeps} = require ("./scripts/ensure-deps");
 const {ensureServer} = require ("./scripts/ensure-server")
 const { makeSmoothProgress } = require("./ui/progress.js");
+const { ensureShared } = require("./scripts/ensure-shared.js");
+const { ensureIpr } = require("./scripts/ensure-ipr.js");
+
 
 
 const { makeSpinner } = require("./ui/spinner.js");
@@ -336,6 +339,44 @@ if (has("--s")) {
             console.log("  npx json-server --watch server/db.json --routes server/routes.json");
         }, { cliArgs: args, minMs: 400 });
 
+        process.exit(0);
+    })();
+    return;
+}
+
+/* --sh: crea src/shared con infrastructure y presentation (components/views) */
+if (has("--sh")) {
+    (async () => {
+        const base  = get("base", "src");
+        const name  = get("name", "shared");
+        const force = has("--force");
+
+        const res = await runWithSpinner("Creando estructura shared", () => {
+            return ensureShared({ base, name, force });
+        }, { cliArgs: args, minMs: 250 });
+
+        console.log(`✔ Shared en: ${res.dir}`);
+        res.files.forEach(f => {
+            const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+            console.log(`  - ${f.path} ${tag}`);
+        });
+        process.exit(0);
+    })();
+    return;
+}
+/* --ipr: crea i18n.js, pinia.js y router.js en la raíz */
+if (has("--ipr")) {
+    (async () => {
+        const force = has("--force");
+        const res = await runWithSpinner("Creando archivos raíz (i18n/pinia/router)", () => {
+            return ensureIpr({ force });
+        }, { cliArgs: args, minMs: 250 });
+
+        console.log("✔ Archivos en raíz:");
+        res.files.forEach(f => {
+            const tag = f.created ? "(creado/actualizado)" : f.skipped ? "(existente)" : "";
+            console.log(`  - ${f.path} ${tag}`);
+        });
         process.exit(0);
     })();
     return;
