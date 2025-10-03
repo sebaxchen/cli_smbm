@@ -388,8 +388,12 @@ if (has("--all")) {
         const force       = has("--force");
 
         // Opcionales
-        const pm        = get("pm", null);     // npm|yarn|pnpm|bun
-        const withDeps  = has("--with-deps");
+        const withDeps  = has("--with-deps") || has("--deps");
+        const pm        = get("pm",
+            fs.existsSync("pnpm-lock.yaml") ? "pnpm" :
+                fs.existsSync("yarn.lock")      ? "yarn" :
+                    fs.existsSync("bun.lockb")      ? "bun"  : "npm"
+        );
         const devDeps   = has("--dev");
         const batch     = has("--batch");
         const verbose   = has("--verbose");
@@ -481,9 +485,18 @@ if (has("--all")) {
             if (withDeps) {
                 tick("Instalando dependencias base…");
                 await ensureDeps({
-                    pm, dev: devDeps, batch, verbose,
-                    // Si quieres granularidad, podrías mapear ev.index al % dentro de este paso,
-                    // pero mantenemos el avance global por etapas para que la barra siga suave.
+                    pm,
+                    dev: devDeps,
+                    batch,
+                    verbose,
+                    // Si en tu ensure-deps ya agregaste "vue-router@4", acá no hace falta pasar lista
+                    onProgress: (ev) => {
+                        if (ev.type === "pm")            update(`Usando ${ev.pm}…`);
+                        else if (ev.type === "init")     update("Creando package.json…");
+                        else if (ev.type === "batchStart") update("Instalando paquetes (batch) …");
+                        else if (ev.type === "depStart") update(`Instalando ${ev.dep} (${ev.index}/${ev.total})…`);
+                        else if (ev.type === "dep")      update(`Instalado ${ev.dep}`);
+                    }
                 });
             }
 
