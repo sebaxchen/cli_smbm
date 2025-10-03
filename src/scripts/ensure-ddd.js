@@ -32,15 +32,7 @@ function ensureDDD({
 
     dirs.forEach(ensureDir);
 
-    // README minimal en la raíz de la feature
-    const readme = `# ${feat} (DDD)
 
-- application/
-- domain/model/
-- infrastructure/
-- presentation/components/
-- presentation/views/
-`;
     const readmePath = path.join(root, "README.md");
     if (!fs.existsSync(readmePath)) fs.writeFileSync(readmePath, readme, "utf8");
 
